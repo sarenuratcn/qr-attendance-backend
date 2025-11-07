@@ -19,43 +19,42 @@ const app = express();
 // CORS AYARI
 // CORS — Render + lokal geliştirme için güvenli ayar
 
+// src/index.js (CORS kısmını böyle yap)
+const strip = (u) => (u || '').replace(/\/+$/, '');
 
-const ALLOW_ORIGINS = (process.env.CORS_ORIGINS || "")
-  .split(",")
-  .map(s => s.trim())
+const ALLOW_ORIGINS = (process.env.CORS_ORIGINS || '')
+  .split(',')
+  .map(s => strip(s.trim()))
   .filter(Boolean);
 
-// (Opsiyonel ama faydalı) Proxy arkasında doğru protokol/host için
-app.set("trust proxy", 1);
+// Sadece bu proje için: qr-attendance-frontend*.vercel.app
+const allowVercelPreview = (url) =>
+  /^https:\/\/qr-attendance-frontend(-[\w-]+)?\.vercel\.app$/.test(url);
 
-app.use(
-  cors({
-    origin: (origin, cb) => {
-      // Origin yoksa (Postman, curl, bazı mobil webview'lar) izin ver
-      if (!origin) return cb(null, true);
+// Backend’in kendi domainini de kabul edelim (örn. /attend sayfası)
+const SELF = strip(process.env.RENDER_EXTERNAL_URL || process.env.ATTEND_BASE_URL || '');
 
-      // .env yoksa geliştirici modunda rahatsız etme
-      if (ALLOW_ORIGINS.length === 0) return cb(null, true);
+app.use(cors({
+  origin: (origin, cb) => {
+    if (!origin) return cb(null, true);
+    const o = strip(origin);
 
-      // .env'den gelenler
-      if (ALLOW_ORIGINS.includes(origin)) return cb(null, true);
+    const allowed =
+      ALLOW_ORIGINS.includes(o) ||
+      allowVercelPreview(o) ||
+      o === SELF ||
+      /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(o);
 
-      // localhost'a her zaman izin ver (dev)
-      if (/^http:\/\/localhost(:\d+)?$/.test(origin)) return cb(null, true);
+    return allowed ? cb(null, true) : cb(new Error('CORS policy: origin not allowed'));
+  },
+  credentials: true,
+  methods: ['GET','POST','PUT','PATCH','DELETE','OPTIONS'],
+  allowedHeaders: ['Content-Type','Authorization'],
+}));
 
-      // Diğerlerine izin yok → header basılmaz, tarayıcı bloklar
-      return cb(null, false);
-    },
-    credentials: true,
-    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"],
-    preflightContinue: false,
-    optionsSuccessStatus: 204,
-  })
-);
+// preflight
+app.options('*', cors());
 
-// Preflight'ları garanti altına al
-app.options("*", cors());
 
 
 
