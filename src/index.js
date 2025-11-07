@@ -48,7 +48,8 @@ app.use(
 );
 
 // Preflight (OPTIONS) için otomatik cevap
-app.options("*", cors());
+app.options('(.*)', cors());          // ✅ (uyumlu)
+
 
 
 // --- Body parsers ---
