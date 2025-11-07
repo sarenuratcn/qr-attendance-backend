@@ -16,27 +16,40 @@ const legalRouter = require("./routes/legal");
 const app = express();
 
 // --- Güvenli CORS (QR tarayınca telefon tarayıcısından cookie gelebilsin) ---
+// CORS AYARI
 const ALLOW_ORIGINS = (process.env.CORS_ORIGINS || "")
   .split(",")
-  .map(s => s.trim())
-  .filter(Boolean); // örn: http://localhost:5173,http://192.168.1.44:5173
+  .map((s) => s.trim())
+  .filter(Boolean); 
+// örnek .env satırı:
+// CORS_ORIGINS=http://localhost:5173,https://qr-attendance-frontend.vercel.app
 
 app.use(
   cors({
     origin: (origin, cb) => {
-      // Postman / mobil file URL gibi originsiz istekleri kabul et
+      // Origin yoksa (Postman / QR link direkt tarayıcı) izin ver
       if (!origin) return cb(null, true);
-      // Env’den verilenlere + localhost’a izin ver
-      const ok =
+
+      // .env'deki domainlerden veya localhost'lardan biri mi?
+      const allowed =
         ALLOW_ORIGINS.includes(origin) ||
-        /^https?:\/\/localhost(:\d+)?$/.test(origin);
-      cb(null, ok);
+        /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
+
+      if (allowed) return cb(null, true);
+
+      // değilse engelle
+      console.warn("🚫 CORS blocked:", origin);
+      return cb(new Error("CORS policy: origin not allowed"));
     },
-    credentials: true,
+    credentials: true, // cookie göndermek için şart
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
+
+// Preflight (OPTIONS) için otomatik cevap
+app.options("*", cors());
+
 
 // --- Body parsers ---
 app.use(express.json());

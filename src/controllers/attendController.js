@@ -24,12 +24,14 @@ exports.showForm = async (req, res) => {
   // Cihaz cookie’si yoksa üret
 if (!req.cookies?.attdev) {
   const { v4: uuidv4 } = require('uuid');
-  res.cookie('attdev', uuidv4(), {
-    httpOnly: true,
-    sameSite: 'lax',  // Safari için güvenli
-    path: '/',        // her yere gönderilsin
-    maxAge: 1000 * 60 * 60 * 24 * 365 * 2, // 2 yıl
-  });
+// HTTPS alan adında çerez için:
+res.cookie('attdev', uuidv4(), {
+  httpOnly: true,
+  sameSite: 'none',  // önemli: cross-site için 'none'
+  secure: true,      // önemli: HTTPS zorunlu
+  maxAge: 1000 * 60 * 60 * 24 * 365 * 2,
+});
+
 }
 
 
