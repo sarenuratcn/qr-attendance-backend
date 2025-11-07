@@ -20,43 +20,48 @@ const app = express();
 // CORS — Render + lokal geliştirme için güvenli ayar
 
 
+// --- Güvenli CORS (QR tarayınca telefon tarayıcısından cookie gelebilsin) ---
+// .env: CORS_ORIGINS virgülle ayrık tekil origin'ler (sonunda / yok)
+// Örn: CORS_ORIGINS=https://qr-attendance-frontend.vercel.app
+const strip = (u) => (u || '').replace(/\/+$/, '');
+
 const ALLOW_ORIGINS = (process.env.CORS_ORIGINS || "")
   .split(",")
-  .map(s => s.trim())
+  .map((s) => strip(s.trim()))
   .filter(Boolean);
 
-// (Opsiyonel ama faydalı) Proxy arkasında doğru protokol/host için
+// Backend'in dış URL'si (/attend gibi kendi sayfaları için)
+const SELF = strip(process.env.RENDER_EXTERNAL_URL || process.env.ATTEND_BASE_URL || "");
+
+// Tüm vercel preview’larını da kabul et (aynı proje için)
+const allowVercelPreview = (url) =>
+  /^https:\/\/qr-attendance-frontend(-[\w-]+)?\.vercel\.app$/.test(url);
+
 app.set("trust proxy", 1);
 
 app.use(
   cors({
     origin: (origin, cb) => {
-      // Origin yoksa (Postman, curl, bazı mobil webview'lar) izin ver
-      if (!origin) return cb(null, true);
+      if (!origin) return cb(null, true);               // Postman / curl / bazı webview'lar
+      const o = strip(origin);
 
-      // .env yoksa geliştirici modunda rahatsız etme
-      if (ALLOW_ORIGINS.length === 0) return cb(null, true);
+      const allowed =
+        ALLOW_ORIGINS.includes(o) ||                    // .env'den gelen sabit origin(ler)
+        allowVercelPreview(o) ||                        // preview domainleri
+        o === SELF ||                                   // backend kendi origin’i (/attend)
+        /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(o); // local dev
 
-      // .env'den gelenler
-      if (ALLOW_ORIGINS.includes(origin)) return cb(null, true);
-
-      // localhost'a her zaman izin ver (dev)
-      if (/^http:\/\/localhost(:\d+)?$/.test(origin)) return cb(null, true);
-
-      // Diğerlerine izin yok → header basılmaz, tarayıcı bloklar
-      return cb(null, false);
+      return allowed ? cb(null, true) : cb(new Error("CORS policy: origin not allowed"));
     },
     credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
-    preflightContinue: false,
     optionsSuccessStatus: 204,
   })
 );
 
 // Preflight'ları garanti altına al
 app.options("*", cors());
-
 
 
 
