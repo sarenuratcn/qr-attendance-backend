@@ -21,25 +21,61 @@ const app = express();
 
 
 // CORS — Render + lokal geliştirme için güvenli ayar
+// ===== CORS (Express 5 uyumlu, wildcard KULLANMADAN) =====
 const allowList = (process.env.CORS_ORIGINS || "")
   .split(",")
   .map(s => s.trim())
-  .filter(Boolean);
+  .filter(Boolean); 
+// Örnek ENV: 
+// CORS_ORIGINS=https://qr-attendance-backend-xxx.onrender.com, https://qr-frontend-xxx.vercel.app, http://localhost:5173
 
-app.use(
-  cors({
-    origin: (origin, cb) => {
-      if (!origin) return cb(null, true); // Postman/aynı-origin form submit vs.
-      const ok =
-        allowList.includes(origin) ||
-        /^https?:\/\/localhost(:\d+)?$/.test(origin);
-      return ok ? cb(null, true) : cb(new Error(`CORS blocked: ${origin}`), false);
-    },
+function isAllowedOrigin(origin, reqHost) {
+  if (!origin) return true; // originsiz istekleri (Postman/curl) kabul
+  try {
+    const url = new URL(origin);
+
+    // Aynı origin (backend sayfasından gelen form) → izin ver
+    if (url.host === reqHost) return true;
+
+    // Env allowlist
+    if (allowList.includes(origin)) return true;
+
+    // localhost serbest
+    if (/^https?:\/\/localhost(:\d+)?$/i.test(origin)) return true;
+
+    // *.onrender.com serbest (opsiyonel)
+    if (/\.onrender\.com$/i.test(url.host)) return true;
+
+  } catch { /* parse hatasını yut */ }
+  return false;
+}
+
+function corsOptionsDelegate(req, callback) {
+  const origin = req.headers.origin;
+  const reqHost = req.get("host"); // örn: qr-attendance-backend-xxx.onrender.com
+  const ok = isAllowedOrigin(origin, reqHost);
+
+  callback(null, {
+    origin: ok,
     credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
-  })
-);
+  });
+}
+
+// Tüm isteklerde CORS uygula
+app.use((req, res, next) => cors(corsOptionsDelegate)(req, res, next));
+
+// Preflight OPTIONS isteklerini *pattern kullanmadan* yakala
+app.use((req, res, next) => {
+  if (req.method === "OPTIONS") {
+    return cors(corsOptionsDelegate)(req, res, () => res.sendStatus(204));
+  }
+  next();
+});
+// ===== /CORS =====
+
+
 
 // Preflight
 
