@@ -1,22 +1,25 @@
-// src/routes/attend.js
 const router = require('express').Router();
 const { showForm, submitForm, listBySession, manualAdd } = require('../controllers/attendController');
 const { rateLimit } = require('../middleware/rateLimit');
 
-// ✅ QR ile açılan yoklama formu (HTML)
 // GET /attend?session=...
 router.get('/', showForm);
 
-// ✅ Form gönderimi (rate limited)
-// POST /attend/submit  ve  /api/attend/submit
+// ✅ Yeni endpoint
 router.post('/submit', rateLimit({ windowMs: 10_000, max: 3 }), submitForm);
 
-// ✅ Öğretmen paneli: oturuma göre liste
-// GET /attend/list?session=...
+// ✅ Eski endpoint (geri uyumluluk)
+router.post('/', rateLimit({ windowMs: 10_000, max: 3 }), submitForm);
+
+// Liste
 router.get('/list', listBySession);
 
-// ✅ Manuel ekleme
-// POST /attend/manual
-router.post('/manual', manualAdd);
+// Manuel giriş (ve alias’lar)
+router.post('/manual', rateLimit({ windowMs: 10_000, max: 10 }), manualAdd);
+router.post('/manual-add', rateLimit({ windowMs: 10_000, max: 10 }), manualAdd);
+router.post('/teacher/manual', rateLimit({ windowMs: 10_000, max: 10 }), manualAdd);
+
+// Debug
+router.get('/debug', (_req, res) => res.status(200).send('attend router OK'));
 
 module.exports = router;

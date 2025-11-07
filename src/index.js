@@ -22,35 +22,73 @@ app.get('/healthz', (_req, res) => {
 
 // --- Güvenli CORS (QR tarayınca telefon tarayıcısından cookie gelebilsin) ---
 // CORS AYARI
-const ALLOW_ORIGINS = (process.env.CORS_ORIGINS || "")
+/** ---------------- CORS (güvenli) ---------------- */
+const rawOrigins = (process.env.CORS_ORIGINS || "")
   .split(",")
-  .map((s) => s.trim())
-  .filter(Boolean); 
-// örnek .env satırı:
-// CORS_ORIGINS=http://localhost:5173,https://qr-attendance-frontend.vercel.app
+  .map(s => s.trim())
+  .filter(Boolean);
 
-app.use(
-  cors({
-    origin: (origin, cb) => {
-      // Origin yoksa (Postman / QR link direkt tarayıcı) izin ver
-      if (!origin) return cb(null, true);
+// .env'de (opsiyonel) yayın backend origin'in:
+const SELF_ORIGIN = (process.env.BACKEND_PUBLIC_URL || "")
+  .trim()
+  .replace(/\/+$/, ""); // sondaki / sil
 
-      // .env'deki domainlerden veya localhost'lardan biri mi?
-      const allowed =
-        ALLOW_ORIGINS.includes(origin) ||
-        /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
+// Otomatik: backend'in kendi origin'ini allowlist'e ekle (aynı-origin POST'lar takılmasın)
+if (SELF_ORIGIN && !rawOrigins.includes(SELF_ORIGIN)) {
+  rawOrigins.push(SELF_ORIGIN);
+}
 
-      if (allowed) return cb(null, true);
+const ALLOW_ORIGINS = rawOrigins;
 
-      // değilse engelle
-      console.warn("🚫 CORS blocked:", origin);
-      return cb(new Error("CORS policy: origin not allowed"));
-    },
-    credentials: true, // cookie göndermek için şart
-    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"],
-  })
-);
+// Yardımcı: isteğin geldiği host/proto'dan anlık origin üret
+function deriveSelfOrigin(req) {
+  const proto = (req.headers["x-forwarded-proto"] || "http").toString();
+  const host = (req.headers.host || "").toString();
+  if (!host) return null;
+  return `${proto}://${host}`;
+}
+
+const corsOptions = {
+  origin(origin, cb) {
+    // Origin yoksa (form submit / curl / QR gibi durumlar) izin ver
+    if (!origin) return cb(null, true);
+
+    // Kendi origin'in (Render'daki public URL ya da anlık host) ise izin ver
+    try {
+      const self = SELF_ORIGIN || null;
+      if (self && new URL(origin).origin === new URL(self).origin) {
+        return cb(null, true);
+      }
+    } catch (_) {}
+
+    // Lokal geliştirme hostları serbest
+    if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) {
+      return cb(null, true);
+    }
+
+    // .env whitelist
+    if (ALLOW_ORIGINS.includes(origin)) {
+      return cb(null, true);
+    }
+
+    return cb(new Error(`Not allowed by CORS: ${origin}`), false);
+  },
+  credentials: true,
+  methods: ["GET","POST","PUT","PATCH","DELETE","OPTIONS"],
+  allowedHeaders: ["Content-Type","Authorization"],
+  maxAge: 86400,
+};
+
+app.use((req,res,next)=>{
+  // Derlenen self origin'i da whitelist'e ekleyelim (Cloudflare/Render arkasında faydalı)
+  const dyn = deriveSelfOrigin(req);
+  if (dyn && !ALLOW_ORIGINS.includes(dyn)) {
+    ALLOW_ORIGINS.push(dyn);
+  }
+  next();
+});
+
+app.use(cors(corsOptions));   // ✅ YETER — ekstra app.options('*') yok
 
 // Preflight (OPTIONS) için otomatik cevap
 
