@@ -8,31 +8,6 @@ function genSessionId() {
   return crypto.randomBytes(6).toString('hex');
 }
 
-// LAN IPv4'i otomatik bul (Wi-Fi/Ethernet)
-// 192.168.x.x / 10.x.y.z / 172.16–31.x.x araligi icinden, internal=false olani al
-function getLanIPv4() {
-  const ifaces = os.networkInterfaces();
-  for (const name of Object.keys(ifaces)) {
-    for (const info of ifaces[name] || []) {
-      if (
-        info.family === 'IPv4' &&
-        !info.internal &&
-        (
-          info.address.startsWith('192.168.') ||
-          info.address.startsWith('10.') ||
-          info.address.startsWith('172.16.') || info.address.startsWith('172.17.') ||
-          info.address.startsWith('172.18.') || info.address.startsWith('172.19.') ||
-          info.address.startsWith('172.2')    || // 172.20–29
-          info.address.startsWith('172.3')       // 172.30–31
-        )
-      ) {
-        return info.address;
-      }
-    }
-  }
-  return null;
-}
-
 exports.createSession = async (req, res) => {
   try {
     const durationMinutes = Number(req.body?.durationMinutes || 10);
@@ -54,26 +29,31 @@ exports.createSession = async (req, res) => {
     const sessionDoc = await Session.create(payload);
     console.log('Yeni oturum:', sessionDoc.sessionId, 'bitis:', expiresAt.toISOString());
 
-    // 1) .env’de ATTEND_BASE_URL varsa onu kullan
-    // 2) Yoksa, telefonun gorebilecegi LAN IP’yi otomatik bul
-    // 3) HICBIRI yoksa, son care host header (localhost ise telefonda calismaz)
-    const envBase = process.env.ATTEND_BASE_URL; // ornek: http://192.168.1.55:4000
-    const lan = getLanIPv4();
-    const headerHost = req.headers.host; // ornek: localhost:4000
-    const proto = (req.headers['x-forwarded-proto'] || 'http');
-
-    let base;
-    if (envBase) {
-      base = envBase.replace(/\/+$/, '');
-    } else if (lan) {
-      const port = (headerHost && headerHost.includes(':')) ? headerHost.split(':')[1] : '4000';
-      base = `${proto}://${lan}:${port}`;
-    } else {
-      base = `${proto}://${headerHost}`; // localhost kalir (sadece PC’de calisir)
+    /**
+     * 🔒 KURAL:
+     * - PRODUCTION’da ATTEND_BASE_URL ZORUNLU.
+     * - Bu URL bir ORIGIN olmalı (ornegin https://qr-frontend.vercel.app veya https://qr-backend.onrender.com)
+     * - Biz her zaman bu ORIGIN + "/attend?session=..." seklinde QR olusturacagiz.
+     */
+    const envBase = (process.env.ATTEND_BASE_URL || '').trim().replace(/\/+$/, '');
+    if (process.env.NODE_ENV === 'production' && !envBase) {
+      console.error('❌ ATTEND_BASE_URL eksik (production). QR olusturulamadi.');
+      return res.status(500).json({ success: false, message: 'Server misconfigured: ATTEND_BASE_URL missing' });
     }
 
-    const qrUrl = `${base}/attend?session=${sessionId}`;
-    const qrDataUrl = await genDataUrl(qrUrl);
+    // DEV ortamında kolaylik: env yoksa local fallback (sadece gelistirme icin)
+    let base = envBase;
+    if (!base) {
+      const headerHost = req.headers.host; // or: localhost:4000
+      const proto = (req.headers['x-forwarded-proto'] || 'http');
+      base = `${proto}://${headerHost}`;
+    }
+
+    const attendUrl = `${base}/attend?session=${sessionId}`;
+    const qrDataUrl = await genDataUrl(attendUrl);
+
+    // debugging icin net log
+    console.log('QR attend URL ->', attendUrl);
 
     return res.json({
       success: true,
@@ -81,7 +61,7 @@ exports.createSession = async (req, res) => {
       startedAt: startedAt.toISOString(),
       expiresAt: expiresAt.toISOString(),
       qrDataUrl,
-      attendUrl: qrUrl,
+      attendUrl,
       baseUsed: base
     });
   } catch (err) {

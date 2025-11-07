@@ -14,6 +14,11 @@ const seedRouter = require("./routes/seed");
 const legalRouter = require("./routes/legal");
 
 const app = express();
+// Sağlık kontrolü (Render için)
+app.get('/healthz', (_req, res) => {
+  res.status(200).send('ok');
+});
+
 
 // --- Güvenli CORS (QR tarayınca telefon tarayıcısından cookie gelebilsin) ---
 // CORS AYARI
@@ -48,7 +53,6 @@ app.use(
 );
 
 // Preflight (OPTIONS) için otomatik cevap
-app.options("*", cors());
 
 
 // --- Body parsers ---
@@ -101,7 +105,7 @@ app.use("/api/auth", authRouter);
 app.use("/api/sessions", sessionsRouter);
 app.use("/api", seedRouter);
 app.use("/", legalRouter); // KVKK / gizlilik sayfaları vs.
-app.use("/", require("./routes/legal"));
+
 
 
 // --- 404 ---
