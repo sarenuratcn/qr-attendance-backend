@@ -21,45 +21,29 @@ const app = express();
 
 
 // CORS — Render + lokal geliştirme için güvenli ayar
-const ALLOW_ORIGINS = (process.env.CORS_ORIGINS || "")
+const allowList = (process.env.CORS_ORIGINS || "")
   .split(",")
   .map(s => s.trim())
   .filter(Boolean);
 
-function isAllowedOrigin(origin) {
-  // Adres çubuğu navigasyonu, Postman, curl, bazı webview'lar → Origin yok
-  if (!origin) return true;
-
-  if (ALLOW_ORIGINS.length > 0 && ALLOW_ORIGINS.includes(origin)) return true;
-
-  // Dev localhost'a her zaman izin ver
-  if (/^http:\/\/localhost(:\d+)?$/.test(origin)) return true;
-
-  return false;
-}
-
-function corsOptionsDelegate(req, cb) {
-  const origin = req.header("Origin");
-  const allowed = isAllowedOrigin(origin);
-
-  if (!allowed) {
-    // ❗ HATA FIRLATMA! Sadece izin ver/alma bayrağı gönder.
-    console.warn("🚫 CORS blocked:", origin);
-  }
-
-  cb(null, {
-    origin: allowed,                         // true/false
+app.use(
+  cors({
+    origin: (origin, cb) => {
+      if (!origin) return cb(null, true); // Postman/aynı-origin form submit vs.
+      const ok =
+        allowList.includes(origin) ||
+        /^https?:\/\/localhost(:\d+)?$/.test(origin);
+      return ok ? cb(null, true) : cb(new Error(`CORS blocked: ${origin}`), false);
+    },
     credentials: true,
-    methods: ["GET","POST","PUT","PATCH","DELETE","OPTIONS"],
-    allowedHeaders: ["Content-Type","Authorization"],
-    optionsSuccessStatus: 204
-  });
-}
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+  })
+);
 
-// Global CORS (router'lardan ÖNCE)
-app.use(cors(corsOptionsDelegate));
-// Express 5: '*' yerine '(.*)'
-app.options("(.*)", cors(corsOptionsDelegate));
+// Preflight
+
+
 
 
 // --- Body parsers ---
