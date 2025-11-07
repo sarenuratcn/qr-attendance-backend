@@ -14,6 +14,7 @@ const seedRoute = require("./routes/seed");
 const legalRoute = require("./routes/legal");
 
 const app = express();
+app.set("trust proxy", 1);
 
 /* ---------------- CORS (Express 5 uyumlu) ---------------- */
 const ALLOW_LIST = (process.env.CORS_ORIGINS || "")
