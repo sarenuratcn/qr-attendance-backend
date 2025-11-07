@@ -17,35 +17,45 @@ const app = express();
 
 // --- Güvenli CORS (QR tarayınca telefon tarayıcısından cookie gelebilsin) ---
 // CORS AYARI
+// CORS — Render + lokal geliştirme için güvenli ayar
+
+
 const ALLOW_ORIGINS = (process.env.CORS_ORIGINS || "")
   .split(",")
-  .map((s) => s.trim())
-  .filter(Boolean); 
-// örnek .env satırı:
-// CORS_ORIGINS=http://localhost:5173,https://qr-attendance-frontend.vercel.app
+  .map(s => s.trim())
+  .filter(Boolean);
+
+// (Opsiyonel ama faydalı) Proxy arkasında doğru protokol/host için
+app.set("trust proxy", 1);
 
 app.use(
   cors({
     origin: (origin, cb) => {
-      // Origin yoksa (Postman / QR link direkt tarayıcı) izin ver
+      // Origin yoksa (Postman, curl, bazı mobil webview'lar) izin ver
       if (!origin) return cb(null, true);
 
-      // .env'deki domainlerden veya localhost'lardan biri mi?
-      const allowed =
-        ALLOW_ORIGINS.includes(origin) ||
-        /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
+      // .env yoksa geliştirici modunda rahatsız etme
+      if (ALLOW_ORIGINS.length === 0) return cb(null, true);
 
-      if (allowed) return cb(null, true);
+      // .env'den gelenler
+      if (ALLOW_ORIGINS.includes(origin)) return cb(null, true);
 
-      // değilse engelle
-      console.warn("🚫 CORS blocked:", origin);
-      return cb(new Error("CORS policy: origin not allowed"));
+      // localhost'a her zaman izin ver (dev)
+      if (/^http:\/\/localhost(:\d+)?$/.test(origin)) return cb(null, true);
+
+      // Diğerlerine izin yok → header basılmaz, tarayıcı bloklar
+      return cb(null, false);
     },
-    credentials: true, // cookie göndermek için şart
+    credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
+    preflightContinue: false,
+    optionsSuccessStatus: 204,
   })
 );
+
+// Preflight'ları garanti altına al
+app.options("*", cors());
 
 
 
