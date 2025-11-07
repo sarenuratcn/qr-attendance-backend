@@ -6,155 +6,124 @@ const cors = require("cors");
 const cookieParser = require("cookie-parser");
 const mongoose = require("mongoose");
 
-// ROUTES (dosyalar mevcut olmalı)
+// ROUTES
+const authRoute = require("./routes/auth");
 const attendRouter = require("./routes/attend");
-const authRouter = require("./routes/auth");
-const sessionsRouter = require("./routes/sessions");
-const seedRouter = require("./routes/seed");
-const legalRouter = require("./routes/legal");
+const sessionsRoute = require("./routes/sessions");
+const seedRoute = require("./routes/seed");
+const legalRoute = require("./routes/legal");
 
 const app = express();
 
-// --- Güvenli CORS (QR tarayınca telefon tarayıcısından cookie gelebilsin) ---
-// CORS AYARI
-// CORS — Render + lokal geliştirme için güvenli ayar
-
-
-// CORS — Render + lokal geliştirme için güvenli ayar
-// ===== CORS (Express 5 uyumlu, wildcard KULLANMADAN) =====
-const allowList = (process.env.CORS_ORIGINS || "")
+/* ---------------- CORS (Express 5 uyumlu) ---------------- */
+const ALLOW_LIST = (process.env.CORS_ORIGINS || "")
   .split(",")
   .map(s => s.trim())
-  .filter(Boolean); 
-// Örnek ENV: 
-// CORS_ORIGINS=https://qr-attendance-backend-xxx.onrender.com, https://qr-frontend-xxx.vercel.app, http://localhost:5173
+  .filter(Boolean);
+// Örnek (Render > Environment):
+// CORS_ORIGINS=https://qr-frontend-xxxxx.vercel.app, http://localhost:5173
 
 function isAllowedOrigin(origin, reqHost) {
-  if (!origin) return true; // originsiz istekleri (Postman/curl) kabul
+  // originsiz istekler (Postman/cURL/aynı origin form postu) serbest
+  if (!origin) return true;
+
   try {
-    const url = new URL(origin);
+    const u = new URL(origin);
 
-    // Aynı origin (backend sayfasından gelen form) → izin ver
-    if (url.host === reqHost) return true;
+    // Backend ile aynı origin ise (örn: /attend formu) izin ver
+    if (u.host === reqHost) return true;
 
-    // Env allowlist
-    if (allowList.includes(origin)) return true;
+    // ENV allow-list
+    if (ALLOW_LIST.includes(origin)) return true;
 
     // localhost serbest
     if (/^https?:\/\/localhost(:\d+)?$/i.test(origin)) return true;
 
-    // *.onrender.com serbest (opsiyonel)
-    if (/\.onrender\.com$/i.test(url.host)) return true;
-
-  } catch { /* parse hatasını yut */ }
+    // Yaygîn: Vercel ve Render domainlerine izin ver (gerekirse)
+    if (/\.vercel\.app$/i.test(u.host)) return true;
+    if (/\.onrender\.com$/i.test(u.host)) return true;
+  } catch (_) {
+    /* yok say */
+  }
   return false;
 }
 
-function corsOptionsDelegate(req, callback) {
+function corsOptionsDelegate(req, cb) {
   const origin = req.headers.origin;
-  const reqHost = req.get("host"); // örn: qr-attendance-backend-xxx.onrender.com
+  const reqHost = req.get("host");
   const ok = isAllowedOrigin(origin, reqHost);
 
-  callback(null, {
-    origin: ok,
-    credentials: true,
-    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"],
+  cb(null, {
+    origin: ok,                     // true/false
+    credentials: true,              // cookie/jwt icin
+    methods: ["GET","POST","PUT","PATCH","DELETE","OPTIONS"],
+    allowedHeaders: ["Content-Type","Authorization"],
   });
 }
 
-// Tüm isteklerde CORS uygula
+// tum isteklerde CORS uygula
 app.use((req, res, next) => cors(corsOptionsDelegate)(req, res, next));
 
-// Preflight OPTIONS isteklerini *pattern kullanmadan* yakala
+// Preflight OPTIONS — wildcard KULLANMADAN
 app.use((req, res, next) => {
   if (req.method === "OPTIONS") {
     return cors(corsOptionsDelegate)(req, res, () => res.sendStatus(204));
   }
   next();
 });
-// ===== /CORS =====
+/* ---------------- /CORS ---------------- */
 
-
-
-// Preflight
-
-
-
-
-// --- Body parsers ---
+/* --------------- Parsers --------------- */
 app.use(express.json());
-app.use(express.urlencoded({ extended: true })); // <— HTML form için kritik
+app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 
-// Eğer proxy arkasına deploy edersen (Vercel/Render/Nginx), gerçek IP için:
-app.set("trust proxy", 1);
-
-// Basit istek log’u (debug sırasında çok faydalı)
-app.use((req, _res, next) => {
-  console.log(`[${new Date().toISOString()}] ${req.method} ${req.originalUrl}`);
-  next();
-});
-
-// --- Sağlık uçları ---
+/* --------------- Healthcheck ------------ */
 app.get("/ping", (_req, res) => res.send("pong"));
-app.get("/api/ping", (_req, res) => res.json({ ok: true, ts: Date.now() }));
 
-// --- Mongo bağlan ---
-const MONGO_URI =
-  process.env.MONGO_URI || "mongodb://127.0.0.1:27017/qr-attendance";
-
+/* --------------- MongoDB --------------- */
+const MONGO_URI = process.env.MONGO_URI || "mongodb://127.0.0.1:27017/qr-attendance";
 mongoose
   .connect(MONGO_URI)
   .then(() => {
-    // Mongo bağlandıktan sonra (then içinde)
-const Attendance = require('./models/Attendance');
-Attendance.syncIndexes()
-  .then(() => console.log('✅ Attendance indexes synced'))
-  .catch((e) => console.error('❌ Attendance index sync error:', e));
-
     const conn = mongoose.connection;
-    // Atlas mı local mi bilgisini göster
-    const isAtlas =
-      (MONGO_URI && MONGO_URI.includes("mongodb.net")) ||
-      (conn.host && conn.host.includes("mongodb.net"));
-    const where = isAtlas ? "Atlas" : "Local";
+    const where = (conn.host || "").includes("mongodb.net") ? "Atlas" : "Local";
     console.log(`✅ MongoDB connected → ${where} [host=${conn.host}] db=${conn.name}`);
   })
-  .catch((err) => console.error("❌ MongoDB connect error:", err));
+  .catch((err) => {
+    console.error("❌ MongoDB connect error:", err);
+  });
 
-// --- Router kayıtları ---
-// attend aynı anda hem /attend hem /api/attend altında çalışsın:
+/* --------------- Routes ---------------- */
+// Hem /attend hem /api/attend altinda calissin
 app.use("/attend", attendRouter);
 app.use("/api/attend", attendRouter);
 
-app.use("/api/auth", authRouter);
-app.use("/api/sessions", sessionsRouter);
-app.use("/api", seedRouter);
-app.use("/", legalRouter); // KVKK / gizlilik sayfaları vs.
+app.use("/api/auth", authRoute);
+app.use("/api/sessions", sessionsRoute);
+app.use("/api", seedRoute);
+app.use("/", legalRoute);
 
-
-
-// --- 404 ---
+/* --------------- 404 ------------------- */
 app.use((req, res) => {
-  res
-    .status(404)
-    .json({ success: false, message: "Not Found", path: req.path });
-});
-
-// --- Genel error handler ---
-app.use((err, req, res, _next) => {
-  console.error("💥 Error handler:", err);
-  res.status(err.status || 500).json({
+  res.status(404).json({
     success: false,
-    message: err.message || "Internal Server Error",
-    // dev aşamasında yardımcı olsun:
-    stack: process.env.NODE_ENV === "production" ? undefined : err.stack,
+    message: "Not Found",
+    path: req.path,
   });
 });
 
-// --- Server ---
+/* --------------- Error handler --------- */
+app.use((err, req, res, _next) => {
+  console.error("❌ Global error:", err);
+  res.status(err.status || 500).json({
+    success: false,
+    message: err.message || "Server error",
+  });
+});
+
+/* --------------- Listen ---------------- */
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, "0.0.0.0", () => {
-  console.log(`🌐 Server listening on ${PORT}`);
+  console.log("🌐 Server listening on", PORT);
 });
