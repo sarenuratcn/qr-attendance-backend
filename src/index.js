@@ -47,8 +47,6 @@ app.use(
   })
 );
 
-// Preflight (OPTIONS) için otomatik cevap
-app.options('(.*)', cors());          // ✅ (uyumlu)
 
 
 
@@ -102,7 +100,7 @@ app.use("/api/auth", authRouter);
 app.use("/api/sessions", sessionsRouter);
 app.use("/api", seedRouter);
 app.use("/", legalRouter); // KVKK / gizlilik sayfaları vs.
-app.use("/", require("./routes/legal"));
+
 
 
 // --- 404 ---
