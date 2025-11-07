@@ -7,74 +7,59 @@ const cookieParser = require("cookie-parser");
 const mongoose = require("mongoose");
 
 const app = express();
+app.set("trust proxy", 1);
 
-// ---- CORS ----
-// ---- CORS ----
-const RAW_ORIGINS = process.env.CORS_ORIGINS || "";
-const ALLOW_ORIGINS = RAW_ORIGINS.split(",").map(s => s.trim()).filter(Boolean);
+// ---------- CORS ----------
+const RAW = process.env.CORS_ORIGINS || "";
+const ALLOW = RAW.split(",").map(s => s.trim()).filter(Boolean); // örn: https://qr-attendance-frontend.vercel.app, http://localhost:5173
 const VERCEL_RE = /^https:\/\/.*\.vercel\.app$/i;
 
-// Her yanıtta Origin'e göre cache ayrıştır
 app.use((req, res, next) => { res.setHeader("Vary", "Origin"); next(); });
+app.use(cors({
+  origin: (origin, cb) => {
+    if (!origin) return cb(null, true); // curl/Postman/dosya URL
+    const ok =
+      ALLOW.includes(origin) ||
+      /^https?:\/\/localhost(:\d+)?$/i.test(origin) ||
+      VERCEL_RE.test(origin);
+    return cb(ok ? null : new Error(`CORS blocked: ${origin}`), ok);
+  },
+  credentials: true,
+  methods: ["GET","POST","PUT","PATCH","DELETE","OPTIONS"],
+  allowedHeaders: ["Content-Type","Authorization"]
+}));
 
-// CORS'u istek bazında (req'i görerek) uygulayalım ki kendi originimizi serbest bırakabilelim
-app.use((req, res, next) => {
-  // 1) /attend sayfaları (form HTML’i) ve kendi origin’den gelen istekler engellenmesin
-  const origin = req.headers.origin;
-  const self = `${req.protocol}://${req.get('host')}`;
-
-  // /attend sayfasına normal gezinme ise (çoğunlukla Origin header yoktur) → bırak
-  if (req.path.startsWith('/attend')) return next();
-
-  // Kendi domainimizden gelen (self-origin) istekler → bırak
-  if (origin && origin === self) return next();
-
-  // 2) Diğer tüm isteklerde whitelist kontrolü
-  return cors({
-    origin: (originHdr, cb) => {
-      // Origin yoksa (curl, Postman, dosyadan açılan sayfa vs.) → bırak
-      if (!originHdr) return cb(null, true);
-
-      const ok =
-        ALLOW_ORIGINS.includes(originHdr) ||
-        /^https?:\/\/localhost(:\d+)?$/i.test(originHdr) ||
-        VERCEL_RE.test(originHdr);
-
-      cb(null, ok);
-    },
-    credentials: true,
-    methods: ["GET","POST","PUT","PATCH","DELETE","OPTIONS"],
-    allowedHeaders: ["Content-Type","Authorization"],
-  })(req, res, next);
-});
-
+// ---------- Parsers ----------
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 
-// health
+// ---------- Health ----------
 app.get("/ping", (req, res) => res.send("pong"));
 
-// routes
-app.use("/attend", require("./routes/attend"));
-app.use("/api/attend", require("./routes/attend"));
+// ---------- ROUTES (404'tan ÖNCE) ----------
+const attendRouter = require("./routes/attend");   // GET/POST /attend
+app.use("/attend", attendRouter);                  // <form ... action="/attend?session=...">
+app.use("/api/attend", attendRouter);
 app.use("/api/auth", require("./routes/auth"));
 app.use("/api/sessions", require("./routes/sessions"));
 app.use("/api", require("./routes/seed"));
 
-// 404
-app.use((req, res) =>
-  res.status(404).json({ success: false, message: "Not Found", path: req.path })
-);
+// ---------- 404 ----------
+app.use((req, res) => {
+  res.status(404).json({ success: false, message: "Not Found", path: req.path });
+});
 
-// Mongo
+// ---------- Mongo + Listen ----------
 const MONGO_URI = process.env.MONGO_URI || "mongodb://127.0.0.1:27017/qr-attendance";
+
 mongoose.connect(MONGO_URI)
   .then(() => {
     const conn = mongoose.connection;
     const where = conn.host.includes("mongodb.net") ? "Atlas" : "Local";
     console.log(`✅ MongoDB connected → ${where} [host=${conn.host}] db=${conn.name}`);
-    const PORT = process.env.PORT || 4000;                         // Render kendi PORT'unu verir
+
+    const PORT = process.env.PORT || 4000;
     app.listen(PORT, "0.0.0.0", () => console.log("🌐 Server listening on", PORT));
   })
   .catch(err => console.error("❌ MongoDB connect error:", err));
