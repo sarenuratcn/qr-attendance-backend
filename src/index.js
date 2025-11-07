@@ -20,49 +20,46 @@ const app = express();
 // CORS — Render + lokal geliştirme için güvenli ayar
 
 
-// --- Güvenli CORS (QR tarayınca telefon tarayıcısından cookie gelebilsin) ---
-// .env: CORS_ORIGINS virgülle ayrık tekil origin'ler (sonunda / yok)
-// Örn: CORS_ORIGINS=https://qr-attendance-frontend.vercel.app
-const strip = (u) => (u || '').replace(/\/+$/, '');
-
+// CORS — Render + lokal geliştirme için güvenli ayar
 const ALLOW_ORIGINS = (process.env.CORS_ORIGINS || "")
   .split(",")
-  .map((s) => strip(s.trim()))
+  .map(s => s.trim())
   .filter(Boolean);
 
-// Backend'in dış URL'si (/attend gibi kendi sayfaları için)
-const SELF = strip(process.env.RENDER_EXTERNAL_URL || process.env.ATTEND_BASE_URL || "");
+function isAllowedOrigin(origin) {
+  // Adres çubuğu navigasyonu, Postman, curl, bazı webview'lar → Origin yok
+  if (!origin) return true;
 
-// Tüm vercel preview’larını da kabul et (aynı proje için)
-const allowVercelPreview = (url) =>
-  /^https:\/\/qr-attendance-frontend(-[\w-]+)?\.vercel\.app$/.test(url);
+  if (ALLOW_ORIGINS.length > 0 && ALLOW_ORIGINS.includes(origin)) return true;
 
-app.set("trust proxy", 1);
+  // Dev localhost'a her zaman izin ver
+  if (/^http:\/\/localhost(:\d+)?$/.test(origin)) return true;
 
-app.use(
-  cors({
-    origin: (origin, cb) => {
-      if (!origin) return cb(null, true);               // Postman / curl / bazı webview'lar
-      const o = strip(origin);
+  return false;
+}
 
-      const allowed =
-        ALLOW_ORIGINS.includes(o) ||                    // .env'den gelen sabit origin(ler)
-        allowVercelPreview(o) ||                        // preview domainleri
-        o === SELF ||                                   // backend kendi origin’i (/attend)
-        /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(o); // local dev
+function corsOptionsDelegate(req, cb) {
+  const origin = req.header("Origin");
+  const allowed = isAllowedOrigin(origin);
 
-      return allowed ? cb(null, true) : cb(new Error("CORS policy: origin not allowed"));
-    },
+  if (!allowed) {
+    // ❗ HATA FIRLATMA! Sadece izin ver/alma bayrağı gönder.
+    console.warn("🚫 CORS blocked:", origin);
+  }
+
+  cb(null, {
+    origin: allowed,                         // true/false
     credentials: true,
-    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"],
-    optionsSuccessStatus: 204,
-  })
-);
+    methods: ["GET","POST","PUT","PATCH","DELETE","OPTIONS"],
+    allowedHeaders: ["Content-Type","Authorization"],
+    optionsSuccessStatus: 204
+  });
+}
 
-// Preflight'ları garanti altına al
-app.options("*", cors());
-
+// Global CORS (router'lardan ÖNCE)
+app.use(cors(corsOptionsDelegate));
+// Express 5: '*' yerine '(.*)'
+app.options("(.*)", cors(corsOptionsDelegate));
 
 
 // --- Body parsers ---
