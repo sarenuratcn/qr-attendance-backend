@@ -25,13 +25,12 @@ exports.showForm = async (req, res) => {
 if (!req.cookies?.attdev) {
   const { v4: uuidv4 } = require('uuid');
 // HTTPS alan adında çerez için:
-res.cookie('token', jwt, {
+res.cookie('attdev', uuidv4(), {
   httpOnly: true,
-  sameSite: 'none',
-  secure: true,
-  maxAge: 7*24*60*60*1000
+  sameSite: 'none',  // önemli: cross-site için 'none'
+  secure: true,      // önemli: HTTPS zorunlu
+  maxAge: 1000 * 60 * 60 * 24 * 365 * 2,
 });
-app.set('trust proxy', 1);
 
 }
 
