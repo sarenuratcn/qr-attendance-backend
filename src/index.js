@@ -9,28 +9,44 @@ const mongoose = require("mongoose");
 const app = express();
 
 // ---- CORS ----
+// ---- CORS ----
 const RAW_ORIGINS = process.env.CORS_ORIGINS || "";
 const ALLOW_ORIGINS = RAW_ORIGINS.split(",").map(s => s.trim()).filter(Boolean);
-
-// vercel preview'ları da ( *.vercel.app ) kabul et
 const VERCEL_RE = /^https:\/\/.*\.vercel\.app$/i;
 
+// Her yanıtta Origin'e göre cache ayrıştır
 app.use((req, res, next) => { res.setHeader("Vary", "Origin"); next(); });
 
-app.use(cors({
-  origin: (origin, cb) => {
-    if (!origin) return cb(null, true);                           // curl/Postman/file URLs
-    const ok =
-      ALLOW_ORIGINS.includes(origin) ||
-      /^https?:\/\/localhost(:\d+)?$/i.test(origin) ||
-      VERCEL_RE.test(origin);                                     // vercel preview
-    if (ok) return cb(null, true);
-    return cb(new Error(`CORS blocked: ${origin}`));
-  },
-  credentials: true,
-  methods: ["GET","POST","PUT","PATCH","DELETE","OPTIONS"],
-  allowedHeaders: ["Content-Type","Authorization"]
-}));
+// CORS'u istek bazında (req'i görerek) uygulayalım ki kendi originimizi serbest bırakabilelim
+app.use((req, res, next) => {
+  // 1) /attend sayfaları (form HTML’i) ve kendi origin’den gelen istekler engellenmesin
+  const origin = req.headers.origin;
+  const self = `${req.protocol}://${req.get('host')}`;
+
+  // /attend sayfasına normal gezinme ise (çoğunlukla Origin header yoktur) → bırak
+  if (req.path.startsWith('/attend')) return next();
+
+  // Kendi domainimizden gelen (self-origin) istekler → bırak
+  if (origin && origin === self) return next();
+
+  // 2) Diğer tüm isteklerde whitelist kontrolü
+  return cors({
+    origin: (originHdr, cb) => {
+      // Origin yoksa (curl, Postman, dosyadan açılan sayfa vs.) → bırak
+      if (!originHdr) return cb(null, true);
+
+      const ok =
+        ALLOW_ORIGINS.includes(originHdr) ||
+        /^https?:\/\/localhost(:\d+)?$/i.test(originHdr) ||
+        VERCEL_RE.test(originHdr);
+
+      cb(null, ok);
+    },
+    credentials: true,
+    methods: ["GET","POST","PUT","PATCH","DELETE","OPTIONS"],
+    allowedHeaders: ["Content-Type","Authorization"],
+  })(req, res, next);
+});
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
